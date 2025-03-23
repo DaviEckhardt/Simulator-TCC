@@ -17,22 +17,34 @@ class VSS2DEnv(gym.Env):
             dtype=np.float32
         )
         
+        #self.physics_client = p.connect(p.GUI)
         self.physics_client = p.connect(p.DIRECT)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, 0)
+        p.setGravity(0, 0, -9.81)  # Define a gravidade corretamente
         self._reset_simulation()
+        
+    def render(self):
+        """Atualiza a simulação na tela"""
+        p.stepSimulation()  # Avança a simulação
+
     
     def _reset_simulation(self):
-        """Inicializa o ambiente com robôs e bola"""
         p.resetSimulation()
         self.robots = []
-        
-        # Criando os robôs (caixas simples para representar os jogadores)
-        for _ in range(2):
-            self.robots.append(p.loadURDF("r2d2.urdf", [np.random.uniform(0, 150), np.random.uniform(0, 130), 0]))
-        
-        # Criando a bola
-        self.ball = p.loadURDF("sphere_small.urdf", [75, 65, 0])
+
+        # Posicione os robôs e a bola em posições iniciais válidas
+        self.robots.append(p.loadURDF("r2d2.urdf", [75, 65, 0]))  # Exemplo de posição inicial
+        self.robots.append(p.loadURDF("r2d2.urdf", [100, 50, 0]))  # Exemplo de posição inicial
+
+        self.ball = p.loadURDF("sphere_small.urdf", [75, 65, 0])  # Posição inicial da bola
+
+        # Configurar atrito e massa do robô e da bola
+        for robot in self.robots:
+            p.changeDynamics(robot, -1, mass=1.0, lateralFriction=0.5, spinningFriction=0.5)  # Atrito no robô
+        p.changeDynamics(self.ball, -1, mass=0.047, lateralFriction=0.5, spinningFriction=0.5)  # Atrito na bola
+
+        # Limitar velocidade máxima do robô
+        self.max_speed = 100 # Velocidade máxima permitida
     
     def reset(self, seed=None, options=None):
         """Reseta o ambiente e retorna o estado inicial"""
@@ -42,36 +54,69 @@ class VSS2DEnv(gym.Env):
         return state, {}
     
     def _get_observation(self):
-        """Coleta a posição e velocidade dos robôs e da bola"""
         obs = []
         for robot in self.robots:
             pos, _ = p.getBasePositionAndOrientation(robot)
             vel, _ = p.getBaseVelocity(robot)
             obs.extend([pos[0], pos[1], vel[0], vel[1]])
-        
+    
         pos, _ = p.getBasePositionAndOrientation(self.ball)
         vel, _ = p.getBaseVelocity(self.ball)
         obs.extend([pos[0], pos[1], vel[0], vel[1]])
-        
+    
         return np.array(obs, dtype=np.float32)
     
     def step(self, action):
-        """Executa uma ação no ambiente"""
         for i, robot in enumerate(self.robots):
-            vx, vy = action[2*i:2*i+2]
-            p.resetBaseVelocity(robot, linearVelocity=[vx, vy, 0])
-        
+            vx, vy = action[2*i] * 10, action[2*i+1] * 10
+            # Aplica uma força externa ao robô
+            p.applyExternalForce(robot, -1, [vx, vy, 0], [0, 0, 0], p.WORLD_FRAME)
+
+        # Verificar e limitar a velocidade do robô
+        robot_vel, _ = p.getBaseVelocity(self.robots[0])
+        if np.linalg.norm(robot_vel[:2]) > self.max_speed:
+            p.resetBaseVelocity(self.robots[0], linearVelocity=[0, 0, 0])
+
+        # Verifica colisões entre robôs e bola
+        for robot in self.robots:
+            robot_pos, _ = p.getBasePositionAndOrientation(robot)
+            ball_pos, _ = p.getBasePositionAndOrientation(self.ball)
+            distance = np.linalg.norm(np.array(robot_pos[:2]) - np.array(ball_pos[:2]))
+
+            # Se o robô estiver próximo à bola, aplica uma força à bola
+            if distance < 5:  # Distância de colisão
+                p.applyExternalForce(self.ball, -1, [vx, vy, 0], [0, 0, 0], p.WORLD_FRAME)
+
         p.stepSimulation()
-        
+
         obs = self._get_observation()
         reward = self._compute_reward()
-        done = False  # Definir critério de término depois
+        done = False
         return obs, reward, done, False, {}
+        
     
     def _compute_reward(self):
-        """Define um sistema de recompensas básico"""
+        # Posição e velocidade da bola
         ball_pos, _ = p.getBasePositionAndOrientation(self.ball)
-        reward = -np.linalg.norm(np.array(ball_pos[:2]) - np.array([150, 65]))  # Aproximar da meta adversária
+        ball_vel, _ = p.getBaseVelocity(self.ball)
+        target_pos = np.array([150, 65])  # Posição do gol adversário
+
+        # Distância da bola até o gol
+        distance_ball_to_target = np.linalg.norm(ball_pos[:2] - target_pos)
+
+        # Velocidade da bola em direção ao gol
+        ball_vel_toward_target = np.dot(ball_vel[:2], (target_pos - ball_pos[:2])) / distance_ball_to_target
+
+        # Recompensa principal: incentivar a bola a se mover em direção ao gol
+        reward = -distance_ball_to_target + 10 * ball_vel_toward_target  # Aumente o peso da velocidade
+
+        # Penalizar mudanças bruscas na velocidade do robô (suavidade)
+        if hasattr(self, 'last_robot_vel'):
+            robot_vel, _ = p.getBaseVelocity(self.robots[0])
+            vel_change = np.linalg.norm(np.array(robot_vel[:2]) - np.array(self.last_robot_vel[:2]))
+            reward -= 0.1 * vel_change  # Penalidade por mudanças bruscas
+        self.last_robot_vel, _ = p.getBaseVelocity(self.robots[0])
+
         return reward
     
     def render(self, mode='human'):
