@@ -72,7 +72,5 @@ Ao final da otimização, os melhores parâmetros encontrados para o PID serão 
 
 ## Melhorias Futuras
 
-- Implementar os termos derivativo (Kd) e integral (Ki) no controlador PID.
-- Adicionar mais robôs ao ambiente para simular partidas completas.
 - Melhorar a física do ambiente para incluir mais detalhes, como rotação da bola e colisões mais realistas.
 
