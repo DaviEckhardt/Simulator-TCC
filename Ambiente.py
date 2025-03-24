@@ -10,6 +10,14 @@ class VSSSEnv(gym.Env):
         self.ball_velocity = np.array([0.0, 0.0])
         self.friction = 0.99
 
+        # Parâmetros do PID
+        self.Kp = 8.0
+        self.Kd = 0.9
+        self.Ki = 0.05
+        self.integral = np.array([0.0, 0.0])
+        self.last_error = np.array([0.0, 0.0])
+        self.last_action = np.array([0.0, 0.0])
+
         self.field_length = 1.50
         self.field_width = 1.30
         self.goal_width = 0.40
@@ -89,8 +97,10 @@ class VSSSEnv(gym.Env):
 
     def step(self, action):
         try:
-            left_wheel_speed = action[0]
-            right_wheel_speed = action[1]
+            # Calcular ação do PID
+            pid_action = self._pid_controller(action)
+            left_wheel_speed = pid_action[0]
+            right_wheel_speed = pid_action[1]
             self._apply_motor_speeds(left_wheel_speed, right_wheel_speed)
 
             self.current_step += 1
@@ -127,7 +137,6 @@ class VSSSEnv(gym.Env):
     def _check_goal(self):
         ball_radius = 0.025
         goal_width = self.goal_width
-        goal_depth = 0.10
 
         # Verificar gol no gol esquerdo
         if self.ball_pos[0] <= ball_radius and abs(self.ball_pos[1] - self.field_width / 2) <= goal_width / 2:
@@ -157,7 +166,7 @@ class VSSSEnv(gym.Env):
 
     def _apply_motor_speeds(self, left_speed, right_speed):
         # Manter uma velocidade base constante
-        base_speed = 1.2  # Aumentado para movimento mais rápido
+        base_speed = 3.0  # Aumentado de 2.0 para 3.0
         linear_velocity = (left_speed + right_speed) * base_speed
         angular_velocity = (right_speed - left_speed) / self.wheel_separation
 
@@ -170,7 +179,7 @@ class VSSSEnv(gym.Env):
         ball_to_goal = ball_to_goal / (np.linalg.norm(ball_to_goal) + 1e-6)
         
         # Calcular posição alvo atrás da bola
-        target_pos = self.ball_pos - ball_to_goal * (ball_radius + robot_radius)  # Reduzido de 0.1 para 0.05
+        target_pos = self.ball_pos - ball_to_goal * (ball_radius + robot_radius)
 
         # Calcular direção do robô para o alvo
         direction_to_target = target_pos - self.robot_pos
@@ -188,6 +197,12 @@ class VSSSEnv(gym.Env):
         angle_to_target = np.arctan2(cross_product, dot_product)
         angle_to_target = np.mod(angle_to_target + np.pi, 2 * np.pi) - np.pi
 
+        # Calcular o ângulo entre a direção do robô e a direção do gol
+        dot_product_goal = np.dot(robot_direction, ball_to_goal)
+        cross_product_goal = np.cross(robot_direction, ball_to_goal)
+        angle_to_goal = np.arctan2(cross_product_goal, dot_product_goal)
+        angle_to_goal = np.mod(angle_to_goal + np.pi, 2 * np.pi) - np.pi
+
         # Ajustar velocidade baseada na distância e ângulo
         if distance_to_ball > ball_radius + robot_radius:
             # Se o ângulo for maior que 90 graus, inverter a direção
@@ -195,13 +210,18 @@ class VSSSEnv(gym.Env):
                 linear_velocity *= -1
             # Reduzir velocidade quando estiver muito desalinhado
             angle_factor = np.cos(angle_to_target)
-            linear_velocity *= max(0.5, angle_factor)  # Aumentado de 0.3 para 0.5
+            linear_velocity *= max(0.5, angle_factor)  # Mantido em 0.5 para velocidade mínima
         else:
-            # Quando estiver próximo da bola, reduzir a velocidade
-            linear_velocity *= 0.8  # Aumentado de 0.5 para 0.8
+            # Quando estiver próximo da bola, verificar alinhamento com o gol
+            if abs(angle_to_goal) > np.pi/2:  # Se o ângulo com o gol for maior que 90 graus
+                # Reduzir velocidade para ajustar o ângulo
+                linear_velocity *= 0.5  # Mantido em 0.5 para velocidade mínima
+            else:
+                # Se estiver bem alinhado com o gol, usar velocidade total
+                linear_velocity *= 1.5  # Aumentado de 1.2 para 1.5
 
         # Atualizar ângulo do robô com velocidade angular ajustada
-        self.robot_angle += angular_velocity * 0.01 * 1.5  # Aumentado para rotação mais rápida
+        self.robot_angle += angular_velocity * 0.01 * 1.5
 
         # Movimento do robô
         new_x = self.robot_pos[0] + linear_velocity * np.cos(self.robot_angle) * 0.01
@@ -228,20 +248,22 @@ class VSSSEnv(gym.Env):
                 linear_velocity * np.sin(self.robot_angle)
             ])
             
-            # Transferir momento linear para a bola
-            self.ball_velocity = robot_velocity * 0.9  # Aumentado para 0.9
+            # Calcular o ângulo entre a velocidade do robô e o vetor de separação
+            dot_product = np.dot(robot_velocity, separation_vector)
+            
+            if dot_product > 0:  # Se o robô está se movendo em direção à bola
+                # Transferir mais momento linear para a bola
+                self.ball_velocity = robot_velocity * 0.99  # Aumentado de 0.98 para 0.99
+                # Manter quase toda a velocidade do robô
+                linear_velocity *= 0.99  # Aumentado de 0.98 para 0.99
+            else:
+                # Se estiver se afastando, transferir menos momento
+                self.ball_velocity = robot_velocity * 0.8  # Aumentado de 0.7 para 0.8
+                linear_velocity *= 0.95  # Aumentado de 0.9 para 0.95
             
             # Adicionar um pequeno impulso perpendicular
             perpendicular = np.array([-separation_vector[1], separation_vector[0]])
-            self.ball_velocity += perpendicular * np.random.uniform(-0.01, 0.01)  # Reduzido para movimento mais estável
-            
-            # Manter a velocidade linear do robô após a colisão
-            linear_velocity *= 0.95  # Reduzir apenas 5% da velocidade
-            
-            # Ajustar a velocidade da bola para seguir a direção do robô
-            dot_product = np.dot(robot_velocity, separation_vector)
-            if dot_product > 0:  # Se o robô está se movendo em direção à bola
-                self.ball_velocity = robot_velocity * 0.95  # Transferir 95% da velocidade do robô
+            self.ball_velocity += perpendicular * np.random.uniform(-0.002, 0.002)  # Reduzido de 0.003 para 0.002
 
         self.robot_pos = new_robot_pos
 
@@ -251,17 +273,17 @@ class VSSSEnv(gym.Env):
         # Verificar colisão com as paredes
         if new_ball_pos[0] - ball_radius < 0:  # Parede esquerda
             new_ball_pos[0] = ball_radius
-            self.ball_velocity[0] = -self.ball_velocity[0] * 0.8  # Reflexão com perda de energia
+            self.ball_velocity[0] = -self.ball_velocity[0] * 0.9  # Aumentado de 0.8 para 0.9
         elif new_ball_pos[0] + ball_radius > self.field_length:  # Parede direita
             new_ball_pos[0] = self.field_length - ball_radius
-            self.ball_velocity[0] = -self.ball_velocity[0] * 0.8
+            self.ball_velocity[0] = -self.ball_velocity[0] * 0.9  # Aumentado de 0.8 para 0.9
             
         if new_ball_pos[1] - ball_radius < 0:  # Parede superior
             new_ball_pos[1] = ball_radius
-            self.ball_velocity[1] = -self.ball_velocity[1] * 0.8
+            self.ball_velocity[1] = -self.ball_velocity[1] * 0.9  # Aumentado de 0.8 para 0.9
         elif new_ball_pos[1] + ball_radius > self.field_width:  # Parede inferior
             new_ball_pos[1] = self.field_width - ball_radius
-            self.ball_velocity[1] = -self.ball_velocity[1] * 0.8
+            self.ball_velocity[1] = -self.ball_velocity[1] * 0.9  # Aumentado de 0.8 para 0.9
             
         self.ball_pos = new_ball_pos
         
@@ -269,7 +291,7 @@ class VSSSEnv(gym.Env):
         self.ball_velocity *= self.friction
         
         # Limitar velocidade máxima da bola
-        max_speed = 1.0
+        max_speed = 2.0  # Aumentado de 1.0 para 2.0
         current_speed = np.linalg.norm(self.ball_velocity)
         if current_speed > max_speed:
             self.ball_velocity *= max_speed / current_speed
@@ -361,3 +383,94 @@ class VSSSEnv(gym.Env):
 
     def close(self):
         pygame.quit()
+
+    def _pid_controller(self, observation):
+        robot_pos = observation[:2]
+        ball_pos = observation[2:]
+        
+        # Calcular direção para a bola
+        direction_to_ball = ball_pos - robot_pos
+        distance_to_ball = np.linalg.norm(direction_to_ball)
+        direction_to_ball = direction_to_ball / (distance_to_ball + 1e-6)
+        
+        # Calcular direção do gol
+        goal_direction = self.goal_pos - ball_pos
+        goal_direction = goal_direction / (np.linalg.norm(goal_direction) + 1e-6)
+        
+        # Calcular posição alvo atrás da bola
+        target_pos = ball_pos - goal_direction * (0.025 + 0.04 + 0.05)  # Reduzido a margem de 0.1 para 0.05
+        
+        # Calcular ângulo atual do robô
+        robot_direction = np.array([np.cos(self.robot_angle), np.sin(self.robot_angle)])
+        
+        # Calcular direção para o alvo
+        direction_to_target = target_pos - robot_pos
+        direction_to_target = direction_to_target / (np.linalg.norm(direction_to_target) + 1e-6)
+        
+        # Calcular ângulo entre a direção do robô e a direção para o alvo
+        dot_product = np.dot(robot_direction, direction_to_target)
+        cross_product = np.cross(robot_direction, direction_to_target)
+        angle_error = np.arctan2(cross_product, dot_product)
+        angle_error = np.mod(angle_error + np.pi, 2 * np.pi) - np.pi
+        
+        # Calcular ângulo entre a direção do robô e a direção do gol
+        dot_product_goal = np.dot(robot_direction, goal_direction)
+        cross_product_goal = np.cross(robot_direction, goal_direction)
+        angle_to_goal = np.arctan2(cross_product_goal, dot_product_goal)
+        angle_to_goal = np.mod(angle_to_goal + np.pi, 2 * np.pi) - np.pi
+        
+        # Calcular erro de posição
+        position_error = target_pos - robot_pos
+        
+        # Atualizar integral e derivada com suavização
+        self.integral = self.integral * 0.95 + position_error * 0.01
+        derivative = (position_error - self.last_error) / 0.01
+        
+        # Fator baseado na distância (ajustado para ser mais agressivo quando longe)
+        distance_factor = min(1.0, distance_to_ball / 0.2)  # Reduzido de 0.3 para 0.2
+        
+        # Calcular velocidade linear usando PID
+        linear_velocity = 2.0 * (self.Kp * np.linalg.norm(position_error) + self.Ki * np.linalg.norm(self.integral) + self.Kd * np.linalg.norm(derivative))
+        linear_velocity = min(1.0, linear_velocity)  # Limitar velocidade máxima
+        
+        # Ajustar velocidade linear baseado no ângulo e distância
+        angle_factor = np.cos(angle_error)
+        linear_velocity *= max(0.7, angle_factor) * distance_factor  # Aumentado mínimo de 0.5 para 0.7
+        
+        # Calcular velocidade angular usando PID
+        if distance_to_ball > 0.15:  # Reduzido de 0.2 para 0.15
+            # Priorizar chegar atrás da bola
+            angular_velocity = 1.5 * (self.Kp * angle_error + self.Kd * (angle_error - self.last_error[0]) + self.Ki * self.integral[0]) * distance_factor
+            # Aumentar velocidade linear quando estiver bem alinhado
+            if abs(angle_error) < np.pi/4:  # Aumentado de pi/6 para pi/4
+                linear_velocity *= 1.5  # Aumentado de 1.2 para 1.5
+        else:  # Se estiver próximo da bola
+            # Priorizar alinhar com o gol
+            angular_velocity = 0.7 * (self.Kp * angle_to_goal + self.Kd * (angle_to_goal - self.last_error[1]) + self.Ki * self.integral[1])
+            linear_velocity *= 0.9  # Aumentado de 0.8 para 0.9
+        
+        # Usar ré apenas quando estiver muito desalinhado e longe da bola
+        if abs(angle_error) > np.pi/2 and distance_to_ball > 0.3:  # Reduzido de 0.5 para 0.3
+            linear_velocity *= -1
+        
+        # Converter velocidades linear e angular em velocidades das rodas
+        wheel_separation = self.wheel_separation
+        left_speed = linear_velocity - (angular_velocity * wheel_separation / 2)
+        right_speed = linear_velocity + (angular_velocity * wheel_separation / 2)
+        
+        # Normalizar as velocidades
+        max_speed = max(abs(left_speed), abs(right_speed))
+        if max_speed > 1.0:
+            left_speed /= max_speed
+            right_speed /= max_speed
+        
+        # Suavizar as ações
+        smoothing_factor = 0.8  # Reduzido de 0.9 para 0.8 para resposta mais rápida
+        left_speed = smoothing_factor * left_speed + (1 - smoothing_factor) * self.last_action[0]
+        right_speed = smoothing_factor * right_speed + (1 - smoothing_factor) * self.last_action[1]
+        
+        # Atualizar última ação e erro
+        self.last_action[:] = [left_speed, right_speed]
+        self.last_error[:] = [angle_error, angle_to_goal]
+        
+        return np.array([left_speed, right_speed])
