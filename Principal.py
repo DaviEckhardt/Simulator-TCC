@@ -23,6 +23,8 @@ def evaluate_parameters(Kp, Kd, Ki):
     env.Kp = Kp
     env.Kd = Kd
     env.Ki = Ki
+    
+    print(f"\nIteração atual - Kp: {Kp:.2f}, Kd: {Kd:.2f}, Ki: {Ki:.2f}")
 
     total_reward = 0
     for _ in range(1000):  
@@ -32,8 +34,12 @@ def evaluate_parameters(Kp, Kd, Ki):
 
         if done:
             break
-
+    
+    print(f"Recompensa total: {total_reward:.2f}")
     return -total_reward
+
+print("Iniciando otimização...")
+print(f"Parâmetros iniciais - Kp: {initial_parameters[0]:.2f}, Kd: {initial_parameters[1]:.2f}, Ki: {initial_parameters[2]:.2f}")
 
 result = gp_minimize(
     func=evaluate_parameters,  
@@ -45,6 +51,7 @@ result = gp_minimize(
 
 env.close()
 
+print("\nResultados finais:")
 print("Melhores parâmetros encontrados:")
-print(f"Kp: {result.x[0]}, Kd: {result.x[1]}, Ki: {result.x[2]}")
-print(f"Melhor recompensa: {-result.fun}")
+print(f"Kp: {result.x[0]:.2f}, Kd: {result.x[1]:.2f}, Ki: {result.x[2]:.2f}")
+print(f"Melhor recompensa: {-result.fun:.2f}")
