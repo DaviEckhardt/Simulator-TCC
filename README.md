@@ -13,16 +13,42 @@ Este projeto é uma simulação de um robô jogador de futebol (VSSS - Very Smal
 ### Ambiente de Simulação:
 - O ambiente simula um campo de futebol com um robô e uma bola.
 - O robô pode se mover em direção à bola e tentar marcar gols.
-- A física básica inclui atrito e colisões entre o robô e a bola.
+- A física básica inclui atrito, colisões entre o robô e a bola, e transferência de momento.
 
 ### Controlador PID:
-- O controlador PID é responsável por calcular as ações do robô com base na posição atual do robô e da bola.
-- O erro é calculado como a diferença entre a posição da bola e a posição do robô.
-- A ação é calculada usando apenas o termo proporcional (Kp) no momento.
+- O controlador PID calcula as ações do robô considerando:
+  - Posição relativa à bola
+  - Alinhamento com o gol
+  - Distância e ângulo para a posição alvo
+- Parâmetros atuais do PID:
+  - Kp = 12.0 (resposta proporcional)
+  - Kd = 0.9 (amortecimento)
+  - Ki = 0.08 (correção de erro acumulado)
+
+### Sistema de Controle Avançado:
+- Posicionamento dinâmico atrás da bola baseado no alinhamento com o gol
+- Ajuste de velocidade baseado em múltiplos fatores:
+  - Distância até a bola
+  - Erro de ângulo
+  - Alinhamento com o gol
+- Comportamentos específicos:
+  - Redução de velocidade para grandes correções de ângulo
+  - Movimento reverso quando severamente desalinhado
+  - Controle suave quando próximo à bola
+
+### Física e Colisões:
+- Transferência de momento proporcional ao alinhamento durante colisões
+- Coeficiente de atrito de 0.99 para movimentos realistas
+- Sistema de colisão com paredes com coeficiente de restituição de 0.9
+- Limite de velocidade máxima para a bola
 
 ### Otimização Bayesiana:
-- A otimização bayesiana é usada para encontrar os melhores parâmetros do PID (Kp, Kd, Ki) que maximizam a recompensa.
-- A recompensa é calculada com base na distância do robô à bola e da bola ao gol.
+- A otimização bayesiana busca os melhores parâmetros do PID (Kp, Kd, Ki)
+- A recompensa considera:
+  - Distância do robô à bola
+  - Distância da bola ao gol
+  - Alinhamento do robô
+  - Suavidade do movimento
 
 ## Funções Principais
 
@@ -34,9 +60,17 @@ Este projeto é uma simulação de um robô jogador de futebol (VSSS - Very Smal
   
 - `step`: Executa uma ação no ambiente, atualizando a posição do robô e da bola com base nas velocidades dos motores. Calcula a recompensa com base na distância do robô à bola e da bola ao gol. Verifica se o robô marcou um gol ou se o episódio terminou.
   
-- `_apply_motor_speeds`: Aplica as velocidades dos motores ao robô, calculando sua nova posição e ângulo com base na física básica. Atualiza a posição da bola em caso de colisão com o robô.
+- `_pid_controller`: Implementa o controle PID avançado com:
+  - Cálculo de posição alvo dinâmica
+  - Ajuste de velocidade baseado em múltiplos fatores
+  - Controle de ângulo adaptativo
+  
+- `_apply_motor_speeds`: Aplica velocidades aos motores com:
+  - Física realista de movimento
+  - Sistema de colisão aprimorado
+  - Transferência de momento proporcional ao alinhamento
 
-- `_calculate_reward`: Calcula a recompensa com base na distância do robô à bola e da bola ao gol. Quanto menor a distância, maior a recompensa.
+- `_calculate_reward`: Calcula recompensa considerando múltiplos fatores de desempenho
 
 - `render`: Renderiza o ambiente usando PyGame, desenhando o campo, o robô e a bola na tela.
 
@@ -44,35 +78,34 @@ Este projeto é uma simulação de um robô jogador de futebol (VSSS - Very Smal
 
 ### **principal.py**
 
-- `evaluate_parameters`: Avalia o desempenho do controlador PID com os parâmetros fornecidos (Kp, Kd, Ki). Simula o ambiente por um número fixo de passos e retorna a recompensa total.
-  
-- `pid_controller`: Implementa o controlador PID, calculando a ação do robô com base no erro entre a posição do robô e a posição da bola. Atualmente, apenas o termo proporcional (Kp) é utilizado.
-
-- `gp_minimize`: Realiza a otimização bayesiana dos parâmetros do PID (Kp, Kd, Ki) para maximizar a recompensa. Utiliza a função `evaluate_parameters` para avaliar o desempenho de cada conjunto de parâmetros.
+- `evaluate_parameters`: Avalia o desempenho do controlador PID
+- `gp_minimize`: Otimiza os parâmetros do PID via otimização bayesiana
 
 ## Como Executar
 
-1. Instale as dependências necessárias:
-
+1. Instale as dependências:
     ```bash
     pip install pygame gymnasium scikit-optimize numpy
     ```
 
-2. Execute o script `principal.py` para iniciar a simulação e a otimização:
-
+2. Execute o script principal:
     ```bash
     python principal.py
     ```
 
-3. Após a execução, os melhores parâmetros do PID serão exibidos no console.
-
 ## Resultados
 
-Ao final da otimização, os melhores parâmetros encontrados para o PID serão exibidos, juntamente com a melhor recompensa obtida. Esses parâmetros podem ser usados para controlar o robô de forma mais eficiente no ambiente de simulação.
+O sistema atual demonstra:
+- Movimento suave e controlado do robô
+- Posicionamento efetivo atrás da bola
+- Capacidade de recuperação quando a bola se afasta
+- Controle adaptativo baseado na situação
 
 ## Melhorias Futuras
 
-- Implementar os termos derivativo (Kd) e integral (Ki) no controlador PID.
-- Adicionar mais robôs ao ambiente para simular partidas completas.
-- Melhorar a física do ambiente para incluir mais detalhes, como rotação da bola e colisões mais realistas.
+- Implementação de comportamentos mais complexos
+- Adição de mais robôs para jogos completos
+- Aprimoramento da física de rotação da bola
+- Sistema de planejamento de trajetória
+- Implementação de estratégias de jogo em equipe
 
