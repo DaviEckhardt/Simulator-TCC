@@ -2,7 +2,7 @@ import numpy as np
 from skopt import gp_minimize
 from skopt.space import Real
 from skopt.utils import use_named_args
-from ambiente import VSSSEnv  
+from Ambiente import VSSSEnv  
 
 env = VSSSEnv()
 
