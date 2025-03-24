@@ -157,7 +157,7 @@ class VSSSEnv(gym.Env):
 
     def _apply_motor_speeds(self, left_speed, right_speed):
         # Manter uma velocidade base constante
-        base_speed = 1.2  # Aumentado para movimento mais rápido
+        base_speed = 1.5  # Aumentado para movimento mais rápido
         linear_velocity = (left_speed + right_speed) * base_speed
         angular_velocity = (right_speed - left_speed) / self.wheel_separation
 
@@ -192,10 +192,10 @@ class VSSSEnv(gym.Env):
         if distance_to_ball > ball_radius + robot_radius:
             # Se o ângulo for maior que 90 graus, inverter a direção
             if abs(angle_to_target) > np.pi / 2:
-                linear_velocity *= -1
+                linear_velocity *= -0.5
             # Reduzir velocidade quando estiver muito desalinhado
             angle_factor = np.cos(angle_to_target)
-            linear_velocity *= max(0.5, angle_factor)  # Aumentado de 0.3 para 0.5
+            linear_velocity *= max(0.6, angle_factor)  # Aumentado de 0.3 para 0.5
         else:
             # Quando estiver próximo da bola, reduzir a velocidade
             linear_velocity *= 0.8  # Aumentado de 0.5 para 0.8
@@ -251,17 +251,17 @@ class VSSSEnv(gym.Env):
         # Verificar colisão com as paredes
         if new_ball_pos[0] - ball_radius < 0:  # Parede esquerda
             new_ball_pos[0] = ball_radius
-            self.ball_velocity[0] = -self.ball_velocity[0] * 0.8  # Reflexão com perda de energia
+            self.ball_velocity[0] = -self.ball_velocity[0] * 0.9  # Reflexão com perda de energia
         elif new_ball_pos[0] + ball_radius > self.field_length:  # Parede direita
             new_ball_pos[0] = self.field_length - ball_radius
-            self.ball_velocity[0] = -self.ball_velocity[0] * 0.8
+            self.ball_velocity[0] = -self.ball_velocity[0] * 0.9
             
         if new_ball_pos[1] - ball_radius < 0:  # Parede superior
             new_ball_pos[1] = ball_radius
-            self.ball_velocity[1] = -self.ball_velocity[1] * 0.8
+            self.ball_velocity[1] = -self.ball_velocity[1] * 0.9
         elif new_ball_pos[1] + ball_radius > self.field_width:  # Parede inferior
             new_ball_pos[1] = self.field_width - ball_radius
-            self.ball_velocity[1] = -self.ball_velocity[1] * 0.8
+            self.ball_velocity[1] = -self.ball_velocity[1] * 0.9
             
         self.ball_pos = new_ball_pos
         
@@ -269,7 +269,7 @@ class VSSSEnv(gym.Env):
         self.ball_velocity *= self.friction
         
         # Limitar velocidade máxima da bola
-        max_speed = 1.0
+        max_speed = 2.0
         current_speed = np.linalg.norm(self.ball_velocity)
         if current_speed > max_speed:
             self.ball_velocity *= max_speed / current_speed
